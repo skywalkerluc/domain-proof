@@ -1,0 +1,17 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model DomainVerification {
+  id        String   @id @default(uuid()) @db.Uuid
+  domain    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("domain_verifications")
+}

@@ -7,6 +7,8 @@ export type DomainVerification = {
 
 const GENERIC_ERROR =
   "We couldn't start the verification. Please try again in a moment.";
+const GENERIC_RETRIEVAL_ERROR =
+  "We couldn't load this verification. Please try again in a moment.";
 
 function hasMessage(value: unknown): value is { message: string } {
   return (
@@ -55,6 +57,32 @@ export async function startDomainVerification(
 
   if (!isDomainVerification(payload)) {
     throw new Error(GENERIC_ERROR);
+  }
+
+  return payload;
+}
+
+export async function getDomainVerification(
+  id: string,
+): Promise<DomainVerification> {
+  let response: Response;
+
+  try {
+    response = await fetch(`/api/domain-verifications/${id}`);
+  } catch {
+    throw new Error(GENERIC_RETRIEVAL_ERROR);
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      hasMessage(payload) ? payload.message : GENERIC_RETRIEVAL_ERROR,
+    );
+  }
+
+  if (!isDomainVerification(payload)) {
+    throw new Error(GENERIC_RETRIEVAL_ERROR);
   }
 
   return payload;

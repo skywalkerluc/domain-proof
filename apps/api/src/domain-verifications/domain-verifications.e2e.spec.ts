@@ -1,16 +1,51 @@
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 
 import { AppModule } from '../app.module';
+import { PrismaService } from '../prisma.service';
 
-describe('POST /api/domain-verifications', () => {
+type StoredDomainVerification = {
+  id: string;
+  domain: string;
+  createdAt: Date;
+};
+
+describe('/api/domain-verifications', () => {
   let app: INestApplication;
+  let records: Map<string, StoredDomainVerification>;
 
   beforeEach(async () => {
+    records = new Map();
+
+    const prisma = {
+      domainVerification: {
+        create: jest.fn(
+          ({ data }: { data: { domain: string } }): StoredDomainVerification => {
+            const verification = {
+              id: randomUUID(),
+              domain: data.domain,
+              createdAt: new Date(),
+            };
+
+            records.set(verification.id, verification);
+            return verification;
+          },
+        ),
+        findUnique: jest.fn(
+          ({ where }: { where: { id: string } }) =>
+            records.get(where.id) ?? null,
+        ),
+      },
+    };
+
     const testingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
 
     app = testingModule.createNestApplication();
     app.setGlobalPrefix('api');
@@ -32,6 +67,30 @@ describe('POST /api/domain-verifications', () => {
       domain: 'example.com',
       status: 'pending',
       createdAt: expect.any(String),
+    });
+  });
+
+  it('retrieves a created verification by id', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/domain-verifications/${created.body.id}`)
+      .expect(200);
+
+    expect(response.body).toEqual(created.body);
+  });
+
+  it('returns an actionable response when a verification does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/domain-verifications/4f0c4f08-5c04-48aa-a9fd-b3a340582a95')
+      .expect(404);
+
+    expect(response.body).toEqual({
+      code: 'verification_not_found',
+      message: 'This domain verification could not be found.',
     });
   });
 

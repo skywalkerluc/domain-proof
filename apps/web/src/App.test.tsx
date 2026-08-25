@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { BrowserRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
@@ -14,9 +15,11 @@ function renderApp() {
   });
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </BrowserRouter>,
   );
 }
 
@@ -36,6 +39,7 @@ describe('App', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
   });
 
   it('shows the product name', () => {
@@ -67,6 +71,51 @@ describe('App', () => {
       await screen.findByRole('heading', { name: 'Verification started' }),
     ).toBeTruthy();
     expect(screen.getByText('example.com')).toBeTruthy();
+    expect(window.location.pathname).toBe(
+      '/verifications/59ee312b-6761-4ce4-ae01-86093ff67c25',
+    );
+  });
+
+  it('restores a verification when its URL is opened directly', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(successfulVerificationResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(`/api/domain-verifications/${id}`);
+    });
+    expect(
+      await screen.findByRole('heading', { name: 'Verification started' }),
+    ).toBeTruthy();
+    expect(screen.getByText('example.com')).toBeTruthy();
+  });
+
+  it('shows an actionable message for a verification that no longer exists', async () => {
+    const id = '4f0c4f08-5c04-48aa-a9fd-b3a340582a95';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 'verification_not_found',
+            message: 'This domain verification could not be found.',
+          }),
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderApp();
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This domain verification could not be found.',
+    );
   });
 
   it('shows the actionable validation message returned by the API', async () => {

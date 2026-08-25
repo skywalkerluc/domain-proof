@@ -1,19 +1,27 @@
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 
 import { normalizeDomain } from './domain-name';
-
-type DomainVerification = {
-  id: string;
-  domain: string;
-  status: 'pending';
-  createdAt: string;
-};
+import {
+  type DomainVerification,
+  DomainVerificationsService,
+} from './domain-verifications.service';
 
 @Controller('domain-verifications')
 export class DomainVerificationsController {
+  constructor(
+    private readonly domainVerifications: DomainVerificationsService,
+  ) {}
+
   @Post()
-  create(@Body() body: unknown): DomainVerification {
+  create(@Body() body: unknown): Promise<DomainVerification> {
     if (
       typeof body !== 'object' ||
       body === null ||
@@ -38,11 +46,13 @@ export class DomainVerificationsController {
       });
     }
 
-    return {
-      id: randomUUID(),
-      domain,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
+    return this.domainVerifications.create(domain);
+  }
+
+  @Get(':id')
+  findById(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<DomainVerification> {
+    return this.domainVerifications.findById(id);
   }
 }
