@@ -9,9 +9,10 @@ datasource db {
 }
 
 model DomainVerification {
-  id        String   @id @default(uuid()) @db.Uuid
-  domain    String
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid()) @db.Uuid
+  domain         String
+  challengeToken String   @default(dbgenerated("translate(rtrim(encode(gen_random_bytes(32), 'base64'), '='), '+/', '-_')")) @map("challenge_token")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@map("domain_verifications")
 }

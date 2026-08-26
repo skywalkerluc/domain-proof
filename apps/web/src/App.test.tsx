@@ -30,6 +30,11 @@ function successfulVerificationResponse() {
       domain: 'example.com',
       status: 'pending',
       createdAt: '2026-08-25T15:00:00.000Z',
+      dnsRecord: {
+        type: 'TXT',
+        name: '_domain-proof.example.com',
+        value: `domain-proof=${'a'.repeat(43)}`,
+      },
     }),
     { status: 201 },
   );
@@ -39,6 +44,7 @@ describe('App', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    Reflect.deleteProperty(navigator, 'clipboard');
     window.history.replaceState(null, '', '/');
   });
 
@@ -93,6 +99,49 @@ describe('App', () => {
       await screen.findByRole('heading', { name: 'Verification started' }),
     ).toBeTruthy();
     expect(screen.getByText('example.com')).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Add this TXT record' }),
+    ).toBeTruthy();
+    expect(screen.getByText('TXT')).toBeTruthy();
+    expect(screen.getByText('_domain-proof.example.com')).toBeTruthy();
+    expect(screen.getByText(`domain-proof=${'a'.repeat(43)}`)).toBeTruthy();
+    expect(
+      screen.getByText(
+        /This record does not change where your website or email traffic goes.*You don't need to change any other DNS records/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it('copies the TXT record name and value', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(successfulVerificationResponse()),
+    );
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Copy record name' }),
+    );
+    expect(writeText).toHaveBeenCalledWith('_domain-proof.example.com');
+    expect(
+      screen.getByRole('button', { name: 'Record name copied' }),
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Copy record value' }),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      `domain-proof=${'a'.repeat(43)}`,
+    );
   });
 
   it('shows an actionable message for a verification that no longer exists', async () => {

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma.service';
 type StoredDomainVerification = {
   id: string;
   domain: string;
+  challengeToken: string;
   createdAt: Date;
 };
 
@@ -22,10 +23,15 @@ describe('/api/domain-verifications', () => {
     const prisma = {
       domainVerification: {
         create: jest.fn(
-          ({ data }: { data: { domain: string } }): StoredDomainVerification => {
+          ({
+            data,
+          }: {
+            data: { domain: string; challengeToken: string };
+          }): StoredDomainVerification => {
             const verification = {
               id: randomUUID(),
               domain: data.domain,
+              challengeToken: data.challengeToken,
               createdAt: new Date(),
             };
 
@@ -67,6 +73,11 @@ describe('/api/domain-verifications', () => {
       domain: 'example.com',
       status: 'pending',
       createdAt: expect.any(String),
+      dnsRecord: {
+        type: 'TXT',
+        name: '_domain-proof.example.com',
+        value: expect.stringMatching(/^domain-proof=[A-Za-z0-9_-]{43}$/),
+      },
     });
   });
 
@@ -81,6 +92,33 @@ describe('/api/domain-verifications', () => {
       .expect(200);
 
     expect(response.body).toEqual(created.body);
+  });
+
+  it('does not accept a client-selected challenge', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({
+        domain: 'example.com',
+        challengeToken: 'client-selected-token',
+      })
+      .expect(201);
+
+    expect(response.body.dnsRecord.value).not.toBe(
+      'domain-proof=client-selected-token',
+    );
+  });
+
+  it('generates a distinct challenge for each verification', async () => {
+    const first = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    const second = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+
+    expect(second.body.dnsRecord.value).not.toBe(first.body.dnsRecord.value);
   });
 
   it('returns an actionable response when a verification does not exist', async () => {
@@ -131,6 +169,7 @@ describe('/api/domain-verifications', () => {
     'example..com',
     '*.example.com',
     `${'a'.repeat(64)}.com`,
+    `${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(63)}.${'a'.repeat(48)}`,
   ])('rejects an invalid public DNS hostname: %s', async (domain) => {
     const response = await request(app.getHttpServer())
       .post('/api/domain-verifications')

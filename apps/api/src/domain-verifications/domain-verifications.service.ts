@@ -2,12 +2,18 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import type { DomainVerification as PersistedDomainVerification } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
+import {
+  createDomainVerificationChallengeToken,
+  type DomainVerificationDnsRecord,
+  toDomainVerificationDnsRecord,
+} from './domain-verification-challenge';
 
 export type DomainVerification = {
   id: string;
   domain: string;
   status: 'pending';
   createdAt: string;
+  dnsRecord: DomainVerificationDnsRecord;
 };
 
 function toDomainVerification(
@@ -18,6 +24,10 @@ function toDomainVerification(
     domain: verification.domain,
     status: 'pending',
     createdAt: verification.createdAt.toISOString(),
+    dnsRecord: toDomainVerificationDnsRecord(
+      verification.domain,
+      verification.challengeToken,
+    ),
   };
 }
 
@@ -27,7 +37,10 @@ export class DomainVerificationsService {
 
   async create(domain: string): Promise<DomainVerification> {
     const verification = await this.prisma.domainVerification.create({
-      data: { domain },
+      data: {
+        domain,
+        challengeToken: createDomainVerificationChallengeToken(),
+      },
     });
 
     return toDomainVerification(verification);

@@ -50,6 +50,57 @@ function PageLayout({ children }: { children: ReactNode }) {
   );
 }
 
+function CopyableRecordField({
+  label,
+  value,
+}: {
+  label: 'Name' | 'Value';
+  value: string;
+}) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
+    'idle',
+  );
+  const fieldName = label.toLowerCase();
+  const buttonText = {
+    copied: 'Copied',
+    failed: 'Copy failed',
+    idle: 'Copy',
+  }[copyState];
+  const accessibleLabel = {
+    copied: `Record ${fieldName} copied`,
+    failed: `Copy record ${fieldName} failed`,
+    idle: `Copy record ${fieldName}`,
+  }[copyState];
+
+  async function copyValue() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+  }
+
+  return (
+    <div className="rounded-lg bg-slate-950/40 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <dt className="text-xs font-medium uppercase tracking-wide text-emerald-100/60">
+          {label}
+        </dt>
+        <button
+          aria-label={accessibleLabel}
+          className="rounded-md border border-white/10 px-2 py-1 text-xs font-medium text-emerald-100 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+          onClick={copyValue}
+          type="button"
+        >
+          {buttonText}
+        </button>
+      </div>
+      <dd className="mt-1 break-all font-mono text-sm text-white">{value}</dd>
+    </div>
+  );
+}
+
 function VerificationCard({
   verification,
 }: {
@@ -71,10 +122,32 @@ function VerificationCard({
       <p className="mt-2 break-all font-mono text-sm text-white">
         {verification.domain}
       </p>
-      <p className="mt-3 text-sm leading-6 text-emerald-100/70">
-        The next step is to generate the dedicated TXT record used to prove
-        control.
+      <h3 className="mt-6 font-semibold text-emerald-100">
+        Add this TXT record
+      </h3>
+      <p className="mt-2 text-sm leading-6 text-emerald-100/70">
+        Add it in your DNS provider. We’ll look for it to confirm that you
+        control this domain. This record does not change where your website or
+        email traffic goes. You don't need to change any other DNS records.
       </p>
+      <dl className="mt-4 space-y-3">
+        <div className="rounded-lg bg-slate-950/40 p-3">
+          <dt className="text-xs font-medium uppercase tracking-wide text-emerald-100/60">
+            Type
+          </dt>
+          <dd className="mt-1 font-mono text-sm text-white">
+            {verification.dnsRecord.type}
+          </dd>
+        </div>
+        <CopyableRecordField
+          label="Name"
+          value={verification.dnsRecord.name}
+        />
+        <CopyableRecordField
+          label="Value"
+          value={verification.dnsRecord.value}
+        />
+      </dl>
     </div>
   );
 }

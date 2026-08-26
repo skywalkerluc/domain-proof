@@ -3,6 +3,11 @@ export type DomainVerification = {
   domain: string;
   status: 'pending';
   createdAt: string;
+  dnsRecord: {
+    type: 'TXT';
+    name: string;
+    value: string;
+  };
 };
 
 const GENERIC_ERROR =
@@ -19,6 +24,21 @@ function hasMessage(value: unknown): value is { message: string } {
   );
 }
 
+function isDnsRecord(
+  value: unknown,
+): value is DomainVerification['dnsRecord'] {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'TXT' &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'value' in value &&
+    typeof value.value === 'string'
+  );
+}
+
 function isDomainVerification(value: unknown): value is DomainVerification {
   return (
     typeof value === 'object' &&
@@ -30,7 +50,9 @@ function isDomainVerification(value: unknown): value is DomainVerification {
     'status' in value &&
     value.status === 'pending' &&
     'createdAt' in value &&
-    typeof value.createdAt === 'string'
+    typeof value.createdAt === 'string' &&
+    'dnsRecord' in value &&
+    isDnsRecord(value.dnsRecord)
   );
 }
 

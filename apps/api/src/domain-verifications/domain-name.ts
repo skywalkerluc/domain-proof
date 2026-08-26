@@ -1,8 +1,9 @@
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
+import { canCreateDomainVerificationRecord } from './domain-verification-challenge';
+
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const MAX_DOMAIN_LENGTH = 253;
 const URL_DELIMITER = /[/:?#@\\]/;
 
 export function normalizeDomain(input: string): string | null {
@@ -16,7 +17,7 @@ export function normalizeDomain(input: string): string | null {
 
   if (
     domain === '' ||
-    domain.length > MAX_DOMAIN_LENGTH ||
+    !canCreateDomainVerificationRecord(domain) ||
     isIP(domain) !== 0
   ) {
     return null;
