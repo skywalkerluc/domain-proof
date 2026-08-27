@@ -40,8 +40,8 @@ function PageLayout({ children }: { children: ReactNode }) {
             Prove you control your domain.
           </h1>
           <p className="mt-6 text-lg leading-8 text-slate-300">
-            Enter a domain to begin. In the next step, you’ll add a dedicated
-            DNS record that won’t affect your website or email.
+            Enter a domain to begin. You’ll verify ownership by adding a TXT
+            record to DNS.
           </p>
         </section>
 
