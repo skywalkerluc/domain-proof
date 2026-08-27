@@ -13,7 +13,9 @@ import {
   toDomainVerificationDnsRecord,
 } from './domain-verification-challenge';
 import {
+  DOMAIN_VERIFICATION_DNS_OPTIONS,
   DOMAIN_VERIFICATION_DNS_RESOLVER,
+  type DomainVerificationDnsOptions,
   type DomainVerificationDnsResolver,
 } from './domain-verification-dns-resolver';
 
@@ -80,6 +82,8 @@ export class DomainVerificationsService {
     private readonly prisma: PrismaService,
     @Inject(DOMAIN_VERIFICATION_DNS_RESOLVER)
     private readonly dnsResolver: DomainVerificationDnsResolver,
+    @Inject(DOMAIN_VERIFICATION_DNS_OPTIONS)
+    private readonly dnsOptions: DomainVerificationDnsOptions,
   ) {}
 
   async create(domain: string): Promise<DomainVerification> {
@@ -172,7 +176,7 @@ export class DomainVerificationsService {
     let txtRecords: string[][];
 
     try {
-      txtRecords = await this.dnsResolver.resolveTxt(dnsRecord.name);
+      txtRecords = await this.resolveTxt(dnsRecord.name);
     } catch (error) {
       const code = dnsErrorCode(error);
 
@@ -196,13 +200,38 @@ export class DomainVerificationsService {
     return this.saveCheckResult(id, checkedAt, 'verified');
   }
 
+  private async resolveTxt(hostname: string): Promise<string[][]> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        this.dnsResolver.resolveTxt(hostname),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(Object.assign(new Error('DNS lookup timed out.'), {
+              code: 'ETIMEOUT',
+            }));
+          }, this.dnsOptions.timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
   private async saveCheckResult(
     id: string,
     checkedAt: Date,
     outcome: DomainVerificationCheckOutcome,
   ): Promise<DomainVerification> {
-    const verification = await this.prisma.domainVerification.update({
-      where: { id },
+    await this.prisma.domainVerification.updateMany({
+      where: {
+        id,
+        status: 'pending',
+        lastCheckedAt: checkedAt,
+      },
       data:
         outcome === 'verified'
           ? {
@@ -216,6 +245,17 @@ export class DomainVerificationsService {
               lastCheckOutcome: outcome,
             },
     });
+
+    const verification = await this.prisma.domainVerification.findUnique({
+      where: { id },
+    });
+
+    if (!verification) {
+      throw new NotFoundException({
+        code: 'verification_not_found',
+        message: 'This domain verification could not be found.',
+      });
+    }
 
     return toDomainVerification(verification);
   }

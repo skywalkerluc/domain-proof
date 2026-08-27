@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { PrismaNeon } from '@prisma/adapter-neon';
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { PrismaClient } from './generated/prisma/client';
 
@@ -16,12 +16,8 @@ function createNeonAdapter() {
 }
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleDestroy {
+export class PrismaService extends PrismaClient {
   constructor() {
     super({ adapter: createNeonAdapter() });
-  }
-
-  async onModuleDestroy() {
-    await this.$disconnect();
   }
 }

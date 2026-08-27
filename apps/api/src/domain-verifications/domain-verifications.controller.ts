@@ -1,15 +1,15 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
 
-import { normalizeDomain } from './domain-name';
+import { DomainVerificationDomainPipe } from './domain-verification-domain.pipe';
 import {
   type DomainVerification,
   DomainVerificationsService,
@@ -22,31 +22,9 @@ export class DomainVerificationsController {
   ) {}
 
   @Post()
-  create(@Body() body: unknown): Promise<DomainVerification> {
-    if (
-      typeof body !== 'object' ||
-      body === null ||
-      !('domain' in body) ||
-      typeof body.domain !== 'string' ||
-      body.domain.trim() === ''
-    ) {
-      throw new BadRequestException({
-        code: 'domain_required',
-        field: 'domain',
-        message: 'Enter a domain to continue.',
-      });
-    }
-
-    const domain = normalizeDomain(body.domain);
-
-    if (domain === null) {
-      throw new BadRequestException({
-        code: 'invalid_domain',
-        field: 'domain',
-        message: 'Enter a domain like example.com, without a protocol or path.',
-      });
-    }
-
+  create(
+    @Body(DomainVerificationDomainPipe) domain: string,
+  ): Promise<DomainVerification> {
     return this.domainVerifications.create(domain);
   }
 
@@ -58,7 +36,7 @@ export class DomainVerificationsController {
   }
 
   @Post(':id/checks')
-  @HttpCode(200)
+  @HttpCode(HttpStatus.OK)
   check(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ): Promise<DomainVerification> {
