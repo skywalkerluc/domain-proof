@@ -1,18 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
+import { createQueryClient } from './query-client';
 
 function renderApp() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      mutations: { retry: false },
-      queries: { retry: false },
-    },
-  });
+  const queryClient = createQueryClient();
 
   return render(
     <BrowserRouter>
@@ -161,6 +157,23 @@ describe('App', () => {
         /This record does not change where your website or email traffic goes.*You don't need to change any other DNS records/,
       ),
     ).toBeTruthy();
+  });
+
+  it('retries a verification retrieval once after a network failure', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(successfulVerificationResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verification started' }),
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('copies the TXT record name and value', async () => {
@@ -362,24 +375,23 @@ describe('App', () => {
   it('shows an actionable message for a verification that no longer exists', async () => {
     const id = '4f0c4f08-5c04-48aa-a9fd-b3a340582a95';
     window.history.replaceState(null, '', `/verifications/${id}`);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            code: 'verification_not_found',
-            message: 'This domain verification could not be found.',
-          }),
-          { status: 404 },
-        ),
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'verification_not_found',
+          message: 'This domain verification could not be found.',
+        }),
+        { status: 404 },
       ),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
     renderApp();
 
     expect((await screen.findByRole('alert')).textContent).toBe(
       'This domain verification could not be found.',
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows the actionable validation message returned by the API', async () => {
@@ -443,7 +455,8 @@ describe('App', () => {
   });
 
   it('uses a safe message when the API cannot be reached', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network down')));
+    const fetchMock = vi.fn().mockRejectedValue(new Error('Network down'));
+    vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
     renderApp();
@@ -456,5 +469,6 @@ describe('App', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(
       "We couldn't start the verification. Please try again in a moment.",
     );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

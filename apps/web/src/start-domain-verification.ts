@@ -26,6 +26,27 @@ const GENERIC_RETRIEVAL_ERROR =
 const GENERIC_CHECK_ERROR =
   "We couldn't check DNS. Please try again in a moment.";
 
+class DomainVerificationRequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'DomainVerificationRequestError';
+  }
+}
+
+export function shouldRetryDomainVerificationRequest(
+  failureCount: number,
+  error: Error,
+): boolean {
+  return (
+    failureCount < 1 &&
+    error instanceof DomainVerificationRequestError &&
+    error.retryable
+  );
+}
+
 function hasMessage(value: unknown): value is { message: string } {
   return (
     typeof value === 'object' &&
@@ -110,7 +131,7 @@ export async function startDomainVerification(
       body: JSON.stringify({ domain }),
     });
   } catch {
-    throw new Error(GENERIC_ERROR);
+    throw new DomainVerificationRequestError(GENERIC_ERROR, true);
   }
 
   const payload: unknown = await response.json().catch(() => null);
@@ -134,7 +155,7 @@ export async function getDomainVerification(
   try {
     response = await fetch(`/api/domain-verifications/${id}`);
   } catch {
-    throw new Error(GENERIC_RETRIEVAL_ERROR);
+    throw new DomainVerificationRequestError(GENERIC_RETRIEVAL_ERROR, true);
   }
 
   const payload: unknown = await response.json().catch(() => null);
@@ -162,7 +183,7 @@ export async function checkDomainVerification(
       method: 'POST',
     });
   } catch {
-    throw new Error(GENERIC_CHECK_ERROR);
+    throw new DomainVerificationRequestError(GENERIC_CHECK_ERROR, true);
   }
 
   const payload: unknown = await response.json().catch(() => null);
