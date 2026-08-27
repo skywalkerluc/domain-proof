@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "dev": "vite",
-    "test": "vitest run",
+    "test": "vitest run && node --test vercel-config-check.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

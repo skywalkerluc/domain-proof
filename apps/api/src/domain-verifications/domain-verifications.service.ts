@@ -189,6 +189,10 @@ export class DomainVerificationsService {
       );
     }
 
+    if (txtRecords.length === 0) {
+      return this.saveCheckResult(id, checkedAt, 'record_not_found');
+    }
+
     const matches = txtRecords.some(
       (parts) => parts.join('') === dnsRecord.value,
     );

@@ -6,7 +6,12 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/coverage/**', '**/dist/**', '**/node_modules/**'],
+    ignores: [
+      '**/coverage/**',
+      '**/dist/**',
+      '**/node_modules/**',
+      'apps/api/src/generated/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -29,6 +34,12 @@ export default tseslint.config(
   },
   {
     files: ['apps/api/**/*.{cjs,ts}'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    files: ['apps/web/vercel.mjs', 'apps/web/vercel-config-check.mjs'],
     languageOptions: {
       globals: globals.node,
     },

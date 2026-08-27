@@ -91,7 +91,14 @@ apps/
   api/   NestJS API and Prisma schema
 ```
 
+For Vercel, create separate projects rooted at `apps/web` and `apps/api`. Set
+`API_ORIGIN` on the web project to the API deployment origin (without `/api`);
+the web deployment keeps browser requests same-origin and builds its proxy per
+environment.
+
 ## Scope
 
 This project proves generic domain control. Authentication, account ownership,
 domain transfers, and email-specific DNS configuration are intentionally out of scope.
+At larger scale, verification creation rate limits and data expiry would be the
+next abuse and retention controls.

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -32,6 +33,14 @@ import {
   DomainVerificationsService,
 } from './domain-verifications.service';
 
+const domainVerificationIdPipe = new ParseUUIDPipe({
+  exceptionFactory: () =>
+    new BadRequestException({
+      code: 'invalid_verification_id',
+      message: 'Enter a valid verification ID.',
+    }),
+});
+
 @ApiTags('Domain verifications')
 @Controller('domain-verifications')
 export class DomainVerificationsController {
@@ -51,7 +60,7 @@ export class DomainVerificationsController {
     type: DomainVerificationResponse,
   })
   @ApiBadRequestResponse({
-    description: 'The domain is missing or invalid.',
+    description: 'The domain is missing, invalid, or contains unsafe characters.',
     type: DomainVerificationErrorResponse,
   })
   create(
@@ -64,13 +73,16 @@ export class DomainVerificationsController {
   @ApiOperation({ summary: 'Get a domain verification' })
   @ApiParam({ name: 'id', format: 'uuid', description: 'Verification ID.' })
   @ApiOkResponse({ type: DomainVerificationResponse })
-  @ApiBadRequestResponse({ description: 'The ID is not a valid UUID.' })
+  @ApiBadRequestResponse({
+    description: 'The ID is not a valid UUID.',
+    type: DomainVerificationErrorResponse,
+  })
   @ApiNotFoundResponse({
     description: 'No verification exists for this ID.',
     type: DomainVerificationErrorResponse,
   })
   findById(
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', domainVerificationIdPipe) id: string,
   ): Promise<DomainVerification> {
     return this.domainVerifications.findById(id);
   }
@@ -84,7 +96,10 @@ export class DomainVerificationsController {
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'Verification ID.' })
   @ApiOkResponse({ type: DomainVerificationResponse })
-  @ApiBadRequestResponse({ description: 'The ID is not a valid UUID.' })
+  @ApiBadRequestResponse({
+    description: 'The ID is not a valid UUID.',
+    type: DomainVerificationErrorResponse,
+  })
   @ApiNotFoundResponse({
     description: 'No verification exists for this ID.',
     type: DomainVerificationErrorResponse,
@@ -94,7 +109,7 @@ export class DomainVerificationsController {
     type: CheckCooldownResponse,
   })
   check(
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', domainVerificationIdPipe) id: string,
   ): Promise<DomainVerification> {
     return this.domainVerifications.checkById(id);
   }

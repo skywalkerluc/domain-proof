@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, type ReactNode, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import {
   Link,
   Navigate,
@@ -13,14 +13,28 @@ import {
   checkDomainVerification,
   type DomainVerification,
   getDomainVerification,
+  isVerificationNotFoundError,
   startDomainVerification,
-} from './start-domain-verification';
+} from './domain-verifications-api';
+import {
+  clearRecentVerification,
+  readRecentVerification,
+  saveRecentVerification,
+} from './recent-verification';
 
 function verificationQueryKey(id: string) {
   return ['domain-verification', id] as const;
 }
 
-function PageLayout({ children }: { children: ReactNode }) {
+function PageLayout({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  title: string;
+}) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <header className="border-b border-white/10">
@@ -37,11 +51,10 @@ function PageLayout({ children }: { children: ReactNode }) {
             Domain verification
           </p>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            Prove you control your domain.
+            {title}
           </h1>
           <p className="mt-6 text-lg leading-8 text-slate-300">
-            Enter a domain to begin. You’ll verify ownership by adding a TXT
-            record to DNS.
+            {description}
           </p>
         </section>
 
@@ -148,10 +161,7 @@ function VerificationCard({
     : verification.dnsRecord.name;
 
   return (
-    <div
-      className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-4"
-      aria-live="polite"
-    >
+    <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-4">
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-semibold text-emerald-100">
           {isVerified ? 'Domain ownership verified' : 'Verification started'}
@@ -162,6 +172,7 @@ function VerificationCard({
               ? 'rounded-full bg-emerald-300/15 px-2 py-1 text-xs font-medium text-emerald-100'
               : 'rounded-full bg-amber-300/15 px-2 py-1 text-xs font-medium text-amber-200'
           }
+          role="status"
         >
           {isVerified ? 'Verified' : 'Pending'}
         </span>
@@ -177,6 +188,12 @@ function VerificationCard({
           ? 'We found this record in public DNS and used it to confirm that you control this domain.'
           : "Add it in your DNS provider. We’ll look for it to confirm that you control this domain. This record does not change where your website or email traffic goes. You don't need to change any other DNS records."}
       </p>
+      <p className="mt-4 text-xs leading-5 text-emerald-100/60">
+        DNS providers handle this field differently. Use the full hostname
+        unless yours appends a DNS zone automatically. If it already appends{' '}
+        {verification.domain}, use the short host/name. If it appends a
+        different zone, remove that suffix from the full hostname.
+      </p>
       <dl className="mt-4 space-y-3">
         <div className="rounded-lg bg-slate-950/40 p-3">
           <dt className="text-xs font-medium uppercase tracking-wide text-emerald-100/60">
@@ -186,12 +203,6 @@ function VerificationCard({
             {verification.dnsRecord.type}
           </dd>
         </div>
-        <p className="text-xs leading-5 text-emerald-100/60">
-          DNS providers handle this field differently. Use the full hostname
-          unless yours appends a DNS zone automatically. If it already appends{' '}
-          {verification.domain}, use the short host/name. If it appends a
-          different zone, remove that suffix from the full hostname.
-        </p>
         <CopyableRecordField
           accessibleName="record name"
           label="Host / name"
@@ -215,14 +226,16 @@ function VerificationCard({
         </p>
       ) : (
         <>
-          {outcomeCopy ? (
-            <div className="mt-5 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-amber-100">
-              <h4 className="text-sm font-semibold">{outcomeCopy.title}</h4>
-              <p className="mt-1 text-sm leading-6 text-amber-100/80">
-                {outcomeCopy.description}
-              </p>
-            </div>
-          ) : null}
+          <div aria-label="DNS check result" role="status">
+            {outcomeCopy ? (
+              <div className="mt-5 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-amber-100">
+                <h4 className="text-sm font-semibold">{outcomeCopy.title}</h4>
+                <p className="mt-1 text-sm leading-6 text-amber-100/80">
+                  {outcomeCopy.description}
+                </p>
+              </div>
+            ) : null}
+          </div>
           <p className="mt-5 text-sm leading-6 text-emerald-100/70">
             DNS changes can take time to appear. Check after you’ve added the
             record; if it isn’t visible yet, you can try again.
@@ -253,11 +266,13 @@ function VerificationCard({
 
 function StartVerificationPage() {
   const [domain, setDomain] = useState('');
+  const [recentVerification] = useState(readRecentVerification);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const verification = useMutation({
     mutationFn: startDomainVerification,
     onSuccess: (created) => {
+      saveRecentVerification({ id: created.id, domain: created.domain });
       queryClient.setQueryData(verificationQueryKey(created.id), created);
       void navigate(`/verifications/${created.id}`);
     },
@@ -269,7 +284,10 @@ function StartVerificationPage() {
   }
 
   return (
-    <PageLayout>
+    <PageLayout
+      description="Enter a domain to begin. You’ll verify ownership by adding a TXT record to DNS."
+      title="Prove you control your domain."
+    >
       <section
         aria-labelledby="start-verification-title"
         className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20"
@@ -289,7 +307,12 @@ function StartVerificationPage() {
             Domain
           </label>
           <input
-            aria-describedby="domain-hint"
+            aria-describedby={
+              verification.isError
+                ? 'domain-hint domain-error'
+                : 'domain-hint'
+            }
+            aria-invalid={verification.isError || undefined}
             autoComplete="off"
             className="mt-2 w-full rounded-lg border border-white/15 bg-slate-900 px-3 py-2.5 text-base text-white outline-none transition placeholder:text-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20"
             id="domain"
@@ -316,9 +339,19 @@ function StartVerificationPage() {
           </button>
         </form>
 
+        {recentVerification ? (
+          <Link
+            className="mt-5 inline-flex text-sm font-medium text-sky-300 hover:text-sky-200"
+            to={`/verifications/${recentVerification.id}`}
+          >
+            View recent verification for {recentVerification.domain}
+          </Link>
+        ) : null}
+
         {verification.isError ? (
           <div
             className="mt-5 rounded-lg border border-red-400/20 bg-red-400/10 p-4 text-sm leading-6 text-red-100"
+            id="domain-error"
             role="alert"
           >
             {verification.error.message}
@@ -345,8 +378,17 @@ function VerificationPage() {
     },
   });
 
+  useEffect(() => {
+    if (id && isVerificationNotFoundError(verification.error)) {
+      clearRecentVerification(id);
+    }
+  }, [id, verification.error]);
+
   return (
-    <PageLayout>
+    <PageLayout
+      description="Add the TXT record in DNS, then check when it’s ready."
+      title="Complete your verification."
+    >
       <section className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20">
         {verification.isPending ? (
           <p className="text-sm text-slate-300" role="status">

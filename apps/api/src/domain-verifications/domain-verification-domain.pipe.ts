@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 
-import { normalizeDomain } from './domain-name';
+import {
+  hasUnsafeDomainCharacters,
+  normalizeDomain,
+} from './domain-name';
 
 @Injectable()
 export class DomainVerificationDomainPipe
@@ -18,6 +21,15 @@ export class DomainVerificationDomainPipe
         code: 'domain_required',
         field: 'domain',
         message: 'Enter a domain to continue.',
+      });
+    }
+
+    if (hasUnsafeDomainCharacters(body.domain)) {
+      throw new BadRequestException({
+        code: 'unsafe_domain_characters',
+        field: 'domain',
+        message:
+          'Remove spaces, invisible characters, or control characters from the domain.',
       });
     }
 

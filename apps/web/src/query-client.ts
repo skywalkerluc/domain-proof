@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 
-import { shouldRetryDomainVerificationRequest } from './start-domain-verification';
+import { shouldRetryDomainVerificationRequest } from './domain-verifications-api';
 
 export function createQueryClient() {
   return new QueryClient({

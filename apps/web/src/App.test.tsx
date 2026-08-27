@@ -86,6 +86,7 @@ describe('App', () => {
     cleanup();
     vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, 'clipboard');
+    window.localStorage.clear();
     window.history.replaceState(null, '', '/');
   });
 
@@ -117,8 +118,46 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', { name: 'Verification started' }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'Complete your verification.' }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Enter a domain to begin/)).toBeNull();
     expect(screen.getByText('example.com')).toBeTruthy();
     expect(window.location.pathname).toBe(
+      '/verifications/59ee312b-6761-4ce4-ae01-86093ff67c25',
+    );
+  });
+
+  it('offers a link back to the most recent verification', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(successfulVerificationResponse()),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.type(screen.getByLabelText('Domain'), 'example.com');
+    await user.click(
+      screen.getByRole('button', { name: 'Start verification' }),
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem('domain-proof:recent-verification') ??
+          'null',
+      ),
+    ).toEqual({
+      id: '59ee312b-6761-4ce4-ae01-86093ff67c25',
+      domain: 'example.com',
+    });
+    await user.click(
+      await screen.findByRole('link', { name: 'Start another verification' }),
+    );
+
+    const recentLink = screen.getByRole('link', {
+      name: 'View recent verification for example.com',
+    });
+    expect(recentLink.getAttribute('href')).toBe(
       '/verifications/59ee312b-6761-4ce4-ae01-86093ff67c25',
     );
   });
@@ -253,8 +292,13 @@ describe('App', () => {
 
     renderApp();
 
+    const checkResult = await screen.findByRole('status', {
+      name: 'DNS check result',
+    });
+    expect(checkResult.textContent).toBe('');
+
     await user.click(
-      await screen.findByRole('button', { name: 'Check DNS' }),
+      screen.getByRole('button', { name: 'Check DNS' }),
     );
 
     expect(
@@ -262,6 +306,7 @@ describe('App', () => {
         name: 'TXT record not found yet',
       }),
     ).toBeTruthy();
+    expect(checkResult.textContent).toContain('TXT record not found yet');
     expect(screen.getByText(/DNS changes can take time to propagate/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
   });
@@ -374,6 +419,10 @@ describe('App', () => {
 
   it('shows an actionable message for a verification that no longer exists', async () => {
     const id = '4f0c4f08-5c04-48aa-a9fd-b3a340582a95';
+    window.localStorage.setItem(
+      'domain-proof:recent-verification',
+      JSON.stringify({ id, domain: 'missing.example' }),
+    );
     window.history.replaceState(null, '', `/verifications/${id}`);
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -392,6 +441,15 @@ describe('App', () => {
       'This domain verification could not be found.',
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await userEvent.setup().click(
+      screen.getByRole('link', { name: 'Start another verification' }),
+    );
+    expect(
+      screen.queryByRole('link', {
+        name: 'View recent verification for missing.example',
+      }),
+    ).toBeNull();
   });
 
   it('shows the actionable validation message returned by the API', async () => {
@@ -413,13 +471,47 @@ describe('App', () => {
 
     renderApp();
 
-    await user.type(screen.getByLabelText('Domain'), 'https://example.com');
+    const domainInput = screen.getByLabelText('Domain');
+    await user.type(domainInput, 'https://example.com');
+    await user.click(
+      screen.getByRole('button', { name: 'Start verification' }),
+    );
+
+    const error = await screen.findByRole('alert');
+    expect(error.textContent).toBe(
+      'Enter a domain like example.com, without a protocol or path.',
+    );
+    expect(domainInput.getAttribute('aria-invalid')).toBe('true');
+    expect(domainInput.getAttribute('aria-describedby')).toContain(
+      'domain-error',
+    );
+    expect(error.id).toBe('domain-error');
+  });
+
+  it('does not expose an unrecognized API error message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            statusCode: 400,
+            message: 'Validation failed (uuid is expected)',
+          }),
+          { status: 400 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.type(screen.getByLabelText('Domain'), 'example.com');
     await user.click(
       screen.getByRole('button', { name: 'Start verification' }),
     );
 
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Enter a domain like example.com, without a protocol or path.',
+      "We couldn't start the verification. Please try again in a moment.",
     );
   });
 

@@ -5,11 +5,19 @@ import { canCreateDomainVerificationRecord } from './domain-verification-challen
 
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const URL_DELIMITER = /[/:?#@\\]/;
+const UNSAFE_DOMAIN_CHARACTER = /(?![\u200c\u200d])[\p{Cc}\p{Cf}\p{Z}]/u;
+
+export function hasUnsafeDomainCharacters(input: string): boolean {
+  return UNSAFE_DOMAIN_CHARACTER.test(input.trim());
+}
 
 export function normalizeDomain(input: string): string | null {
   const withoutTrailingDot = input.trim().toLowerCase().replace(/\.$/, '');
 
-  if (URL_DELIMITER.test(withoutTrailingDot)) {
+  if (
+    hasUnsafeDomainCharacters(input) ||
+    URL_DELIMITER.test(withoutTrailingDot)
+  ) {
     return null;
   }
 
