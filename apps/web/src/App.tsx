@@ -52,25 +52,26 @@ function PageLayout({ children }: { children: ReactNode }) {
 }
 
 function CopyableRecordField({
+  accessibleName,
   label,
   value,
 }: {
-  label: 'Name' | 'Value';
+  accessibleName: string;
+  label: 'Full hostname' | 'Host / name' | 'Value';
   value: string;
 }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
     'idle',
   );
-  const fieldName = label.toLowerCase();
   const buttonText = {
     copied: 'Copied',
     failed: 'Copy failed',
     idle: 'Copy',
   }[copyState];
   const accessibleLabel = {
-    copied: `Record ${fieldName} copied`,
-    failed: `Copy record ${fieldName} failed`,
-    idle: `Copy record ${fieldName}`,
+    copied: `${accessibleName} copied`,
+    failed: `Copy ${accessibleName} failed`,
+    idle: `Copy ${accessibleName}`,
   }[copyState];
 
   async function copyValue() {
@@ -139,6 +140,12 @@ function VerificationCard({
   const outcomeCopy = pendingOutcome
     ? CHECK_OUTCOME_COPY[pendingOutcome]
     : undefined;
+  const recordNameSuffix = `.${verification.domain}`;
+  const relativeRecordName = verification.dnsRecord.name.endsWith(
+    recordNameSuffix,
+  )
+    ? verification.dnsRecord.name.slice(0, -recordNameSuffix.length)
+    : verification.dnsRecord.name;
 
   return (
     <div
@@ -179,11 +186,24 @@ function VerificationCard({
             {verification.dnsRecord.type}
           </dd>
         </div>
+        <p className="text-xs leading-5 text-emerald-100/60">
+          DNS providers handle this field differently. Use the full hostname
+          unless yours appends a DNS zone automatically. If it already appends{' '}
+          {verification.domain}, use the short host/name. If it appends a
+          different zone, remove that suffix from the full hostname.
+        </p>
         <CopyableRecordField
-          label="Name"
+          accessibleName="record name"
+          label="Host / name"
+          value={relativeRecordName}
+        />
+        <CopyableRecordField
+          accessibleName="full record hostname"
+          label="Full hostname"
           value={verification.dnsRecord.name}
         />
         <CopyableRecordField
+          accessibleName="record value"
           label="Value"
           value={verification.dnsRecord.value}
         />

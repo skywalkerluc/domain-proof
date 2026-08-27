@@ -148,7 +148,13 @@ describe('App', () => {
       screen.getByRole('heading', { name: 'Add this TXT record' }),
     ).toBeTruthy();
     expect(screen.getByText('TXT')).toBeTruthy();
+    expect(screen.getByText('_domain-proof')).toBeTruthy();
     expect(screen.getByText('_domain-proof.example.com')).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Use the full hostname unless yours appends a DNS zone automatically.*example\.com.*use the short host\/name.*remove that suffix from the full hostname/,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText(`domain-proof=${'a'.repeat(43)}`)).toBeTruthy();
     expect(
       screen.getByText(
@@ -176,10 +182,15 @@ describe('App', () => {
     await user.click(
       await screen.findByRole('button', { name: 'Copy record name' }),
     );
-    expect(writeText).toHaveBeenCalledWith('_domain-proof.example.com');
+    expect(writeText).toHaveBeenCalledWith('_domain-proof');
     expect(
-      screen.getByRole('button', { name: 'Record name copied' }),
+      screen.getByRole('button', { name: 'record name copied' }),
     ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Copy full record hostname' }),
+    );
+    expect(writeText).toHaveBeenCalledWith('_domain-proof.example.com');
 
     await user.click(
       screen.getByRole('button', { name: 'Copy record value' }),
