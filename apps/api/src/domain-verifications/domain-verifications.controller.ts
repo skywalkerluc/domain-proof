@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -54,5 +55,13 @@ export class DomainVerificationsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ): Promise<DomainVerification> {
     return this.domainVerifications.findById(id);
+  }
+
+  @Post(':id/checks')
+  @HttpCode(200)
+  check(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<DomainVerification> {
+    return this.domainVerifications.checkById(id);
   }
 }

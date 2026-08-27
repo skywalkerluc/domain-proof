@@ -40,6 +40,51 @@ function successfulVerificationResponse() {
   );
 }
 
+function verifiedVerificationResponse() {
+  return new Response(
+    JSON.stringify({
+      id: '59ee312b-6761-4ce4-ae01-86093ff67c25',
+      domain: 'example.com',
+      status: 'verified',
+      createdAt: '2026-08-25T15:00:00.000Z',
+      verifiedAt: '2026-08-26T19:00:00.000Z',
+      lastCheck: {
+        outcome: 'verified',
+        checkedAt: '2026-08-26T19:00:00.000Z',
+      },
+      dnsRecord: {
+        type: 'TXT',
+        name: '_domain-proof.example.com',
+        value: `domain-proof=${'a'.repeat(43)}`,
+      },
+    }),
+    { status: 200 },
+  );
+}
+
+function pendingCheckResponse(
+  outcome: 'record_not_found' | 'record_mismatch' | 'lookup_error',
+) {
+  return new Response(
+    JSON.stringify({
+      id: '59ee312b-6761-4ce4-ae01-86093ff67c25',
+      domain: 'example.com',
+      status: 'pending',
+      createdAt: '2026-08-25T15:00:00.000Z',
+      lastCheck: {
+        outcome,
+        checkedAt: '2026-08-26T19:00:00.000Z',
+      },
+      dnsRecord: {
+        type: 'TXT',
+        name: '_domain-proof.example.com',
+        value: `domain-proof=${'a'.repeat(43)}`,
+      },
+    }),
+    { status: 200 },
+  );
+}
+
 describe('App', () => {
   afterEach(() => {
     cleanup();
@@ -141,6 +186,165 @@ describe('App', () => {
     );
     expect(writeText).toHaveBeenCalledWith(
       `domain-proof=${'a'.repeat(43)}`,
+    );
+  });
+
+  it('checks DNS and shows when domain ownership is verified', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successfulVerificationResponse())
+      .mockResolvedValueOnce(verifiedVerificationResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Check DNS' }),
+    );
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/domain-verifications/${id}/checks`,
+      { method: 'POST' },
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'Domain ownership verified' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Verified')).toBeTruthy();
+  });
+
+  it('explains when the TXT record is not visible yet and allows retry', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(successfulVerificationResponse())
+        .mockResolvedValueOnce(pendingCheckResponse('record_not_found')),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Check DNS' }),
+    );
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'TXT record not found yet',
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText(/DNS changes can take time to propagate/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
+  });
+
+  it.each([
+    {
+      outcome: 'record_mismatch' as const,
+      title: "TXT record doesn't match",
+      description: /none matched the expected value/,
+    },
+    {
+      outcome: 'lookup_error' as const,
+      title: "DNS lookup couldn't be completed",
+      description: /The record may be correct/,
+    },
+  ])(
+    'explains the $outcome result and allows retry',
+    async ({ description, outcome, title }) => {
+      const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+      window.history.replaceState(null, '', `/verifications/${id}`);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(successfulVerificationResponse())
+          .mockResolvedValueOnce(pendingCheckResponse(outcome)),
+      );
+      const user = userEvent.setup();
+
+      renderApp();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Check DNS' }),
+      );
+
+      expect(
+        await screen.findByRole('heading', { name: title }),
+      ).toBeTruthy();
+      expect(screen.getByText(description)).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
+    },
+  );
+
+  it('prevents a second DNS check while the first one is running', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    let resolveCheck: (response: Response) => void = () => undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(successfulVerificationResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveCheck = resolve;
+          }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Check DNS' }),
+    );
+
+    const pendingButton = await screen.findByRole('button', {
+      name: 'Checking DNS…',
+    });
+    expect(pendingButton).toHaveProperty('disabled', true);
+    await user.click(pendingButton);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    resolveCheck(verifiedVerificationResponse());
+    expect(
+      await screen.findByRole('heading', { name: 'Domain ownership verified' }),
+    ).toBeTruthy();
+  });
+
+  it('shows how long to wait when DNS checks are rate limited', async () => {
+    const id = '59ee312b-6761-4ce4-ae01-86093ff67c25';
+    window.history.replaceState(null, '', `/verifications/${id}`);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(successfulVerificationResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              code: 'check_cooldown',
+              message: 'Wait before checking DNS again.',
+              retryAfterSeconds: 10,
+            }),
+            { status: 429 },
+          ),
+        ),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Check DNS' }),
+    );
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Wait 10 seconds before checking DNS again.',
     );
   });
 

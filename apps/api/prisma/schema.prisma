@@ -8,11 +8,27 @@ datasource db {
   provider = "postgresql"
 }
 
+enum DomainVerificationStatus {
+  pending
+  verified
+}
+
+enum DomainVerificationCheckOutcome {
+  verified
+  record_not_found
+  record_mismatch
+  lookup_error
+}
+
 model DomainVerification {
-  id             String   @id @default(uuid()) @db.Uuid
-  domain         String
-  challengeToken String   @default(dbgenerated("translate(rtrim(encode(gen_random_bytes(32), 'base64'), '='), '+/', '-_')")) @map("challenge_token")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id               String                          @id @default(uuid()) @db.Uuid
+  domain           String
+  challengeToken   String                          @default(dbgenerated("translate(rtrim(encode(gen_random_bytes(32), 'base64'), '='), '+/', '-_')")) @map("challenge_token")
+  status           DomainVerificationStatus        @default(pending)
+  verifiedAt       DateTime?                       @map("verified_at")
+  lastCheckedAt    DateTime?                       @map("last_checked_at")
+  lastCheckOutcome DomainVerificationCheckOutcome? @map("last_check_outcome")
+  createdAt        DateTime                        @default(now()) @map("created_at")
 
   @@map("domain_verifications")
 }

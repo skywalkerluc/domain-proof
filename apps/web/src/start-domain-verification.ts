@@ -1,8 +1,17 @@
 export type DomainVerification = {
   id: string;
   domain: string;
-  status: 'pending';
+  status: 'pending' | 'verified';
   createdAt: string;
+  verifiedAt?: string;
+  lastCheck?: {
+    outcome:
+      | 'verified'
+      | 'record_not_found'
+      | 'record_mismatch'
+      | 'lookup_error';
+    checkedAt: string;
+  };
   dnsRecord: {
     type: 'TXT';
     name: string;
@@ -14,6 +23,8 @@ const GENERIC_ERROR =
   "We couldn't start the verification. Please try again in a moment.";
 const GENERIC_RETRIEVAL_ERROR =
   "We couldn't load this verification. Please try again in a moment.";
+const GENERIC_CHECK_ERROR =
+  "We couldn't check DNS. Please try again in a moment.";
 
 function hasMessage(value: unknown): value is { message: string } {
   return (
@@ -21,6 +32,19 @@ function hasMessage(value: unknown): value is { message: string } {
     value !== null &&
     'message' in value &&
     typeof value.message === 'string'
+  );
+}
+
+function isCooldownError(
+  value: unknown,
+): value is { code: 'check_cooldown'; retryAfterSeconds: number } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    value.code === 'check_cooldown' &&
+    'retryAfterSeconds' in value &&
+    typeof value.retryAfterSeconds === 'number'
   );
 }
 
@@ -39,6 +63,22 @@ function isDnsRecord(
   );
 }
 
+function isLastCheck(value: unknown): value is NonNullable<
+  DomainVerification['lastCheck']
+> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'outcome' in value &&
+    (value.outcome === 'verified' ||
+      value.outcome === 'record_not_found' ||
+      value.outcome === 'record_mismatch' ||
+      value.outcome === 'lookup_error') &&
+    'checkedAt' in value &&
+    typeof value.checkedAt === 'string'
+  );
+}
+
 function isDomainVerification(value: unknown): value is DomainVerification {
   return (
     typeof value === 'object' &&
@@ -48,9 +88,11 @@ function isDomainVerification(value: unknown): value is DomainVerification {
     'domain' in value &&
     typeof value.domain === 'string' &&
     'status' in value &&
-    value.status === 'pending' &&
+    (value.status === 'pending' || value.status === 'verified') &&
     'createdAt' in value &&
     typeof value.createdAt === 'string' &&
+    (!('verifiedAt' in value) || typeof value.verifiedAt === 'string') &&
+    (!('lastCheck' in value) || isLastCheck(value.lastCheck)) &&
     'dnsRecord' in value &&
     isDnsRecord(value.dnsRecord)
   );
@@ -105,6 +147,40 @@ export async function getDomainVerification(
 
   if (!isDomainVerification(payload)) {
     throw new Error(GENERIC_RETRIEVAL_ERROR);
+  }
+
+  return payload;
+}
+
+export async function checkDomainVerification(
+  id: string,
+): Promise<DomainVerification> {
+  let response: Response;
+
+  try {
+    response = await fetch(`/api/domain-verifications/${id}/checks`, {
+      method: 'POST',
+    });
+  } catch {
+    throw new Error(GENERIC_CHECK_ERROR);
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (isCooldownError(payload)) {
+      const unit = payload.retryAfterSeconds === 1 ? 'second' : 'seconds';
+
+      throw new Error(
+        `Wait ${payload.retryAfterSeconds} ${unit} before checking DNS again.`,
+      );
+    }
+
+    throw new Error(hasMessage(payload) ? payload.message : GENERIC_CHECK_ERROR);
+  }
+
+  if (!isDomainVerification(payload)) {
+    throw new Error(GENERIC_CHECK_ERROR);
   }
 
   return payload;

@@ -5,20 +5,42 @@ import request from 'supertest';
 
 import { AppModule } from '../app.module';
 import { PrismaService } from '../prisma.service';
+import { DOMAIN_VERIFICATION_DNS_RESOLVER } from './domain-verification-dns-resolver';
 
 type StoredDomainVerification = {
   id: string;
   domain: string;
   challengeToken: string;
+  status: 'pending' | 'verified';
+  verifiedAt: Date | null;
+  lastCheckedAt: Date | null;
+  lastCheckOutcome:
+    | 'verified'
+    | 'record_not_found'
+    | 'record_mismatch'
+    | 'lookup_error'
+    | null;
   createdAt: Date;
 };
 
 describe('/api/domain-verifications', () => {
   let app: INestApplication;
   let records: Map<string, StoredDomainVerification>;
+  let txtRecords: string[][];
+  let txtLookupError: unknown;
+  let resolveTxtMock: jest.Mock<Promise<string[][]>, [string]>;
 
   beforeEach(async () => {
     records = new Map();
+    txtRecords = [];
+    txtLookupError = null;
+    resolveTxtMock = jest.fn<Promise<string[][]>, [string]>(async () => {
+      if (txtLookupError) {
+        throw txtLookupError;
+      }
+
+      return txtRecords;
+    });
 
     const prisma = {
       domainVerification: {
@@ -32,6 +54,10 @@ describe('/api/domain-verifications', () => {
               id: randomUUID(),
               domain: data.domain,
               challengeToken: data.challengeToken,
+              status: 'pending' as const,
+              verifiedAt: null,
+              lastCheckedAt: null,
+              lastCheckOutcome: null,
               createdAt: new Date(),
             };
 
@@ -43,6 +69,55 @@ describe('/api/domain-verifications', () => {
           ({ where }: { where: { id: string } }) =>
             records.get(where.id) ?? null,
         ),
+        updateMany: jest.fn(
+          ({
+            where,
+            data,
+          }: {
+            where: {
+              id: string;
+              status: 'pending';
+              OR: [
+                { lastCheckedAt: null },
+                { lastCheckedAt: { lte: Date } },
+              ];
+            };
+            data: { lastCheckedAt: Date };
+          }): { count: number } => {
+            const verification = records.get(where.id);
+            const cooldownThreshold = where.OR[1].lastCheckedAt.lte;
+
+            if (
+              !verification ||
+              verification.status !== where.status ||
+              (verification.lastCheckedAt !== null &&
+                verification.lastCheckedAt > cooldownThreshold)
+            ) {
+              return { count: 0 };
+            }
+
+            Object.assign(verification, data);
+            return { count: 1 };
+          },
+        ),
+        update: jest.fn(
+          ({
+            where,
+            data,
+          }: {
+            where: { id: string };
+            data: Partial<StoredDomainVerification>;
+          }): StoredDomainVerification => {
+            const verification = records.get(where.id);
+
+            if (!verification) {
+              throw new Error('Record not found');
+            }
+
+            Object.assign(verification, data);
+            return verification;
+          },
+        ),
       },
     };
 
@@ -51,6 +126,8 @@ describe('/api/domain-verifications', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(prisma)
+      .overrideProvider(DOMAIN_VERIFICATION_DNS_RESOLVER)
+      .useValue({ resolveTxt: resolveTxtMock })
       .compile();
 
     app = testingModule.createNestApplication();
@@ -92,6 +169,155 @@ describe('/api/domain-verifications', () => {
       .expect(200);
 
     expect(response.body).toEqual(created.body);
+  });
+
+  it('verifies ownership when DNS contains the expected TXT value', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtRecords = [[created.body.dnsRecord.value]];
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      ...created.body,
+      status: 'verified',
+      verifiedAt: expect.any(String),
+      lastCheck: {
+        outcome: 'verified',
+        checkedAt: expect.any(String),
+      },
+    });
+  });
+
+  it('returns an already verified resource without querying DNS again', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtRecords = [[created.body.dnsRecord.value]];
+
+    const verified = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+    const checkedAgain = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(checkedAgain.body).toEqual(verified.body);
+    expect(resolveTxtMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a missing TXT record and keeps the verification pending', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtLookupError = Object.assign(new Error('Not found'), {
+      code: 'ENOTFOUND',
+    });
+
+    const checked = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(checked.body).toEqual({
+      ...created.body,
+      lastCheck: {
+        outcome: 'record_not_found',
+        checkedAt: expect.any(String),
+      },
+    });
+
+    const restored = await request(app.getHttpServer())
+      .get(`/api/domain-verifications/${created.body.id}`)
+      .expect(200);
+
+    expect(restored.body).toEqual(checked.body);
+  });
+
+  it('records a mismatch when TXT values exist without the challenge', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtRecords = [['unrelated=value'], ['another=value']];
+
+    const checked = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(checked.body).toEqual({
+      ...created.body,
+      lastCheck: {
+        outcome: 'record_mismatch',
+        checkedAt: expect.any(String),
+      },
+    });
+  });
+
+  it('records a recoverable outcome when the DNS lookup fails', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtLookupError = Object.assign(new Error('Resolver unavailable'), {
+      code: 'ESERVFAIL',
+    });
+
+    const checked = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(checked.body).toEqual({
+      ...created.body,
+      lastCheck: {
+        outcome: 'lookup_error',
+        checkedAt: expect.any(String),
+      },
+    });
+  });
+
+  it('matches a fragmented challenge among multiple TXT values', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    const [prefix, token] = created.body.dnsRecord.value.split('=');
+    txtRecords = [['unrelated=value'], [`${prefix}=`, token]];
+
+    const checked = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    expect(checked.body.status).toBe('verified');
+    expect(checked.body.lastCheck.outcome).toBe('verified');
+  });
+
+  it('rate limits repeated checks before querying DNS again', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtRecords = [['unrelated=value']];
+
+    await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(429);
+
+    expect(response.body).toEqual({
+      code: 'check_cooldown',
+      message: 'Wait before checking DNS again.',
+      retryAfterSeconds: expect.any(Number),
+    });
+    expect(resolveTxtMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not accept a client-selected challenge', async () => {
