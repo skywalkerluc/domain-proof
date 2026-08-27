@@ -155,6 +155,18 @@ describe('/api/domain-verifications', () => {
       .get('/api/docs')
       .expect('content-type', /html/)
       .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/docs/swagger-ui-bundle.js')
+      .expect('content-type', /javascript/)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/docs/swagger-ui-standalone-preset.js')
+      .expect('content-type', /javascript/)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/docs/swagger-ui.css')
+      .expect('content-type', /css/)
+      .expect(200);
 
     const response = await request(app.getHttpServer())
       .get('/api/docs-json')
