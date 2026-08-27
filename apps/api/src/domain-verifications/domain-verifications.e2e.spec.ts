@@ -150,6 +150,93 @@ describe('/api/domain-verifications', () => {
     expect(response.headers['x-powered-by']).toBeUndefined();
   });
 
+  it('publishes the complete OpenAPI contract', async () => {
+    await request(app.getHttpServer())
+      .get('/api/docs')
+      .expect('content-type', /html/)
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+
+    expect(response.body.info).toMatchObject({
+      title: 'Domain Proof API',
+      version: '1.0',
+    });
+    expect(response.body.paths).toMatchObject({
+      '/api/health': { get: expect.any(Object) },
+      '/api/domain-verifications': { post: expect.any(Object) },
+      '/api/domain-verifications/{id}': { get: expect.any(Object) },
+      '/api/domain-verifications/{id}/checks': { post: expect.any(Object) },
+    });
+  });
+
+  it('documents how to create and check a verification', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const createVerification =
+      response.body.paths['/api/domain-verifications'].post;
+    const checkVerification =
+      response.body.paths['/api/domain-verifications/{id}/checks'].post;
+
+    expect(createVerification).toMatchObject({
+      summary: 'Create a domain verification',
+      tags: ['Domain verifications'],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/CreateDomainVerificationRequest',
+            },
+          },
+        },
+      },
+      responses: {
+        201: {
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/DomainVerificationResponse',
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(checkVerification.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: expect.objectContaining({ format: 'uuid' }),
+      }),
+    );
+    expect(response.body.components.schemas).toMatchObject({
+      CreateDomainVerificationRequest: {
+        required: ['domain'],
+        properties: { domain: expect.any(Object) },
+      },
+      DomainVerificationResponse: {
+        required: expect.arrayContaining([
+          'id',
+          'domain',
+          'status',
+          'createdAt',
+          'dnsRecord',
+        ]),
+        properties: {
+          id: expect.objectContaining({ format: 'uuid' }),
+          dnsRecord: expect.objectContaining({
+            $ref: '#/components/schemas/DomainVerificationDnsRecord',
+          }),
+        },
+      },
+    });
+  });
+
   it('creates a pending verification for a normalized domain', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/domain-verifications')
