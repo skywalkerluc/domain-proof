@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "pnpm --filter @domain-proof/contracts build && tsc -b && vite build",
     "dev": "vite",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
