@@ -56,9 +56,9 @@ pnpm dev
 | --- | --- |
 | `pnpm dev` | Start web and API in watch mode |
 | `pnpm test` | Run the API and web test suites |
-| `pnpm lint` | Lint both applications |
-| `pnpm typecheck` | Type-check both applications |
-| `pnpm build` | Build both applications |
+| `pnpm lint` | Lint the applications and shared packages |
+| `pnpm typecheck` | Type-check the workspace |
+| `pnpm build` | Build the workspace |
 | `pnpm --filter @domain-proof/api db:migrate:deploy` | Apply database migrations |
 
 The test suite covers domain validation, API contracts, persistence, DNS outcomes,
@@ -89,6 +89,8 @@ Create a verification:
 apps/
   web/   React application
   api/   NestJS API and Prisma schema
+packages/
+  contracts/   Shared API contracts and runtime validation
 ```
 
 ## Deployment
@@ -98,10 +100,10 @@ at `apps/api`. Both build with zero configuration; the API additionally needs
 `DATABASE_URL` and `DIRECT_URL`.
 
 `apps/web/vercel.json` rewrites `/api/*` to the API deployment. That keeps every
-browser request same-origin, so the API needs no CORS configuration and is not
-reachable from other origins. The trade-off is that the API origin is written
-into the file: a fork or a preview deployment proxies to the production API
-instead of its own, so point the rewrite at your own API before deploying a copy.
+browser request same-origin, so the web UI does not require enabling CORS on the
+API. The API remains publicly accessible. The trade-off is that its origin is
+written into the file: a fork or a preview deployment proxies to the production
+API instead of its own, so point the rewrite at your own API before deploying a copy.
 
 ## Scope
 

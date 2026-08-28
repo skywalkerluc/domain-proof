@@ -8,7 +8,7 @@
   "scripts": {
     "build": "pnpm --recursive build",
     "dev": "pnpm --parallel --recursive dev",
-    "lint": "eslint apps",
+    "lint": "eslint apps packages",
     "postinstall": "pnpm --filter @domain-proof/contracts build && pnpm --filter @domain-proof/api db:generate",
     "test": "pnpm --recursive test",
     "typecheck": "pnpm --recursive typecheck"
