@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@domain-proof/contracts": "workspace:*",
     "@tanstack/react-query": "^5.85.5",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

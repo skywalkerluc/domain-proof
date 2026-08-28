@@ -5,11 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import type {
+  DomainVerification,
+  DomainVerificationCheckOutcome,
+} from '@domain-proof/contracts';
+
 import type { DomainVerification as PersistedDomainVerification } from '../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 import {
   createDomainVerificationChallengeToken,
-  type DomainVerificationDnsRecord,
   toDomainVerificationDnsRecord,
 } from './domain-verification-challenge';
 import {
@@ -19,11 +23,7 @@ import {
   type DomainVerificationDnsResolver,
 } from './domain-verification-dns-resolver';
 
-export type DomainVerificationCheckOutcome =
-  | 'verified'
-  | 'record_not_found'
-  | 'record_mismatch'
-  | 'lookup_error';
+export type { DomainVerification, DomainVerificationCheckOutcome };
 
 const CHECK_COOLDOWN_MS = 10_000;
 
@@ -34,19 +34,6 @@ function dnsErrorCode(error: unknown): string | undefined {
 
   return typeof error.code === 'string' ? error.code : undefined;
 }
-
-export type DomainVerification = {
-  id: string;
-  domain: string;
-  status: 'pending' | 'verified';
-  createdAt: string;
-  dnsRecord: DomainVerificationDnsRecord;
-  verifiedAt?: string;
-  lastCheck?: {
-    outcome: DomainVerificationCheckOutcome;
-    checkedAt: string;
-  };
-};
 
 function toDomainVerification(
   verification: PersistedDomainVerification,
@@ -98,31 +85,13 @@ export class DomainVerificationsService {
   }
 
   async findById(id: string): Promise<DomainVerification> {
-    const verification = await this.prisma.domainVerification.findUnique({
-      where: { id },
-    });
-
-    if (!verification) {
-      throw new NotFoundException({
-        code: 'verification_not_found',
-        message: 'This domain verification could not be found.',
-      });
-    }
+    const verification = await this.getVerificationOrThrow(id);
 
     return toDomainVerification(verification);
   }
 
   async checkById(id: string): Promise<DomainVerification> {
-    const verification = await this.prisma.domainVerification.findUnique({
-      where: { id },
-    });
-
-    if (!verification) {
-      throw new NotFoundException({
-        code: 'verification_not_found',
-        message: 'This domain verification could not be found.',
-      });
-    }
+    const verification = await this.getVerificationOrThrow(id);
 
     if (verification.status === 'verified') {
       return toDomainVerification(verification);
@@ -176,7 +145,7 @@ export class DomainVerificationsService {
     let txtRecords: string[][];
 
     try {
-      txtRecords = await this.resolveTxt(dnsRecord.name);
+      txtRecords = await this.resolveTxtWithTimeout(dnsRecord.name);
     } catch (error) {
       const code = dnsErrorCode(error);
 
@@ -204,7 +173,24 @@ export class DomainVerificationsService {
     return this.saveCheckResult(id, checkedAt, 'verified');
   }
 
-  private async resolveTxt(hostname: string): Promise<string[][]> {
+  private async getVerificationOrThrow(
+    id: string,
+  ): Promise<PersistedDomainVerification> {
+    const verification = await this.prisma.domainVerification.findUnique({
+      where: { id },
+    });
+
+    if (!verification) {
+      throw new NotFoundException({
+        code: 'verification_not_found',
+        message: 'This domain verification could not be found.',
+      });
+    }
+
+    return verification;
+  }
+
+  private async resolveTxtWithTimeout(hostname: string): Promise<string[][]> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
 
     try {
@@ -250,16 +236,7 @@ export class DomainVerificationsService {
             },
     });
 
-    const verification = await this.prisma.domainVerification.findUnique({
-      where: { id },
-    });
-
-    if (!verification) {
-      throw new NotFoundException({
-        code: 'verification_not_found',
-        message: 'This domain verification could not be found.',
-      });
-    }
+    const verification = await this.getVerificationOrThrow(id);
 
     return toDomainVerification(verification);
   }
