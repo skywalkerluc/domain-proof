@@ -38,10 +38,4 @@ export default tseslint.config(
       globals: globals.node,
     },
   },
-  {
-    files: ['apps/web/vercel.mjs', 'apps/web/vercel-config-check.mjs'],
-    languageOptions: {
-      globals: globals.node,
-    },
-  },
 );

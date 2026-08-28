@@ -91,10 +91,17 @@ apps/
   api/   NestJS API and Prisma schema
 ```
 
-For Vercel, create separate projects rooted at `apps/web` and `apps/api`. Set
-`API_ORIGIN` on the web project to the API deployment origin (without `/api`);
-the web deployment keeps browser requests same-origin and builds its proxy per
-environment.
+## Deployment
+
+Vercel hosts two projects from this repository, one rooted at `apps/web` and one
+at `apps/api`. Both build with zero configuration; the API additionally needs
+`DATABASE_URL` and `DIRECT_URL`.
+
+`apps/web/vercel.json` rewrites `/api/*` to the API deployment. That keeps every
+browser request same-origin, so the API needs no CORS configuration and is not
+reachable from other origins. The trade-off is that the API origin is written
+into the file: a fork or a preview deployment proxies to the production API
+instead of its own, so point the rewrite at your own API before deploying a copy.
 
 ## Scope
 
