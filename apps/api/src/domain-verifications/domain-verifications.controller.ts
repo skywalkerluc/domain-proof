@@ -13,6 +13,7 @@ import {
   ApiBadRequestResponse,
   ApiBody,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -25,8 +26,12 @@ import { DomainVerificationDomainPipe } from './domain-verification-domain.pipe'
 import {
   CheckCooldownResponse,
   CreateDomainVerificationRequest,
+  DOMAIN_VERIFICATION_RESPONSE_SCHEMA,
   DomainVerificationErrorResponse,
-  DomainVerificationResponse,
+  PendingDomainVerificationLastCheck,
+  PendingDomainVerificationResponse,
+  VerifiedDomainVerificationLastCheck,
+  VerifiedDomainVerificationResponse,
 } from './domain-verification.openapi';
 import {
   type DomainVerification,
@@ -42,6 +47,12 @@ const domainVerificationIdPipe = new ParseUUIDPipe({
 });
 
 @ApiTags('Domain verifications')
+@ApiExtraModels(
+  PendingDomainVerificationLastCheck,
+  VerifiedDomainVerificationLastCheck,
+  PendingDomainVerificationResponse,
+  VerifiedDomainVerificationResponse,
+)
 @Controller('domain-verifications')
 export class DomainVerificationsController {
   constructor(
@@ -57,7 +68,7 @@ export class DomainVerificationsController {
   @ApiBody({ type: CreateDomainVerificationRequest })
   @ApiCreatedResponse({
     description: 'The pending verification and its TXT challenge.',
-    type: DomainVerificationResponse,
+    type: PendingDomainVerificationResponse,
   })
   @ApiBadRequestResponse({
     description: 'The domain is missing, invalid, or contains unsafe characters.',
@@ -72,7 +83,7 @@ export class DomainVerificationsController {
   @Get(':id')
   @ApiOperation({ summary: 'Get a domain verification' })
   @ApiParam({ name: 'id', format: 'uuid', description: 'Verification ID.' })
-  @ApiOkResponse({ type: DomainVerificationResponse })
+  @ApiOkResponse({ schema: DOMAIN_VERIFICATION_RESPONSE_SCHEMA })
   @ApiBadRequestResponse({
     description: 'The ID is not a valid UUID.',
     type: DomainVerificationErrorResponse,
@@ -95,7 +106,7 @@ export class DomainVerificationsController {
       'Queries public DNS for the expected TXT challenge and returns the latest state.',
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'Verification ID.' })
-  @ApiOkResponse({ type: DomainVerificationResponse })
+  @ApiOkResponse({ schema: DOMAIN_VERIFICATION_RESPONSE_SCHEMA })
   @ApiBadRequestResponse({
     description: 'The ID is not a valid UUID.',
     type: DomainVerificationErrorResponse,

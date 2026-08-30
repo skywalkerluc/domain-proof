@@ -220,7 +220,7 @@ describe('/api/domain-verifications', () => {
           content: {
             'application/json': {
               schema: {
-                $ref: '#/components/schemas/DomainVerificationResponse',
+                $ref: '#/components/schemas/PendingDomainVerificationResponse',
               },
             },
           },
@@ -242,27 +242,70 @@ describe('/api/domain-verifications', () => {
         },
       },
     });
+    expect(
+      checkVerification.responses[200].content['application/json'].schema,
+    ).toMatchObject({
+      oneOf: [
+        { $ref: '#/components/schemas/PendingDomainVerificationResponse' },
+        { $ref: '#/components/schemas/VerifiedDomainVerificationResponse' },
+      ],
+      discriminator: { propertyName: 'status' },
+    });
     expect(response.body.components.schemas).toMatchObject({
       CreateDomainVerificationRequest: {
         required: ['domain'],
         properties: { domain: expect.any(Object) },
       },
-      DomainVerificationResponse: {
-        required: expect.arrayContaining([
+      PendingDomainVerificationResponse: {
+        required: ['id', 'domain', 'status', 'createdAt', 'dnsRecord'],
+        properties: {
+          id: expect.objectContaining({ format: 'uuid' }),
+          status: expect.objectContaining({ enum: ['pending'] }),
+          dnsRecord: expect.objectContaining({
+            $ref: '#/components/schemas/DomainVerificationDnsRecord',
+          }),
+          lastCheck: expect.objectContaining({
+            $ref: '#/components/schemas/PendingDomainVerificationLastCheck',
+          }),
+        },
+      },
+      VerifiedDomainVerificationResponse: {
+        required: [
           'id',
           'domain',
           'status',
           'createdAt',
           'dnsRecord',
-        ]),
+          'verifiedAt',
+          'lastCheck',
+        ],
         properties: {
-          id: expect.objectContaining({ format: 'uuid' }),
-          dnsRecord: expect.objectContaining({
-            $ref: '#/components/schemas/DomainVerificationDnsRecord',
+          status: expect.objectContaining({ enum: ['verified'] }),
+          verifiedAt: expect.objectContaining({ format: 'date-time' }),
+          lastCheck: expect.objectContaining({
+            $ref: '#/components/schemas/VerifiedDomainVerificationLastCheck',
           }),
         },
       },
+      PendingDomainVerificationLastCheck: {
+        required: ['outcome', 'checkedAt'],
+        properties: {
+          outcome: expect.objectContaining({
+            enum: ['record_not_found', 'record_mismatch', 'lookup_error'],
+          }),
+        },
+      },
+      VerifiedDomainVerificationLastCheck: {
+        required: ['outcome', 'checkedAt'],
+        properties: {
+          outcome: expect.objectContaining({ enum: ['verified'] }),
+        },
+      },
     });
+    expect(
+      response.body.components.schemas.PendingDomainVerificationResponse
+        .properties.verifiedAt,
+    ).toBeUndefined();
   });
 
   it('creates a pending verification for a normalized domain', async () => {
