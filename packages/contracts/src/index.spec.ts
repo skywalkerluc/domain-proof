@@ -63,12 +63,24 @@ describe('isDomainVerification', () => {
   });
 
   it('rejects a verified verification without verifiedAt', () => {
-    const { verifiedAt: _, ...withoutVerifiedAt } = verifiedBase;
-    assert.equal(isDomainVerification(withoutVerifiedAt), false);
+    assert.equal(
+      isDomainVerification({
+        ...pendingBase,
+        status: 'verified',
+        lastCheck: verifiedBase.lastCheck,
+      }),
+      false,
+    );
   });
 
   it('rejects a verified verification without a successful lastCheck', () => {
-    const { lastCheck: _, ...withoutLastCheck } = verifiedBase;
-    assert.equal(isDomainVerification(withoutLastCheck), false);
+    assert.equal(
+      isDomainVerification({
+        ...pendingBase,
+        status: 'verified',
+        verifiedAt: verifiedBase.verifiedAt,
+      }),
+      false,
+    );
   });
 });
