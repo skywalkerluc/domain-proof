@@ -18,6 +18,7 @@ type StoredDomainVerification = {
   challengeToken: string;
   status: 'pending' | 'verified';
   verifiedAt: Date | null;
+  checkStartedAt: Date | null;
   lastCheckedAt: Date | null;
   lastCheckOutcome:
     | 'verified'
@@ -63,6 +64,7 @@ describe('/api/domain-verifications', () => {
               challengeToken: data.challengeToken,
               status: 'pending' as const,
               verifiedAt: null,
+              checkStartedAt: null,
               lastCheckedAt: null,
               lastCheckOutcome: null,
               createdAt: new Date(),
@@ -85,9 +87,10 @@ describe('/api/domain-verifications', () => {
               id: string;
               status: 'pending';
               OR?: [
-                { lastCheckedAt: null },
-                { lastCheckedAt: { lte: Date } },
+                { checkStartedAt: null },
+                { checkStartedAt: { lte: Date } },
               ];
+              checkStartedAt?: Date;
               lastCheckedAt?: Date;
             };
             data: Partial<StoredDomainVerification>;
@@ -99,14 +102,20 @@ describe('/api/domain-verifications', () => {
             }
 
             if (where.OR) {
-              const cooldownThreshold = where.OR[1].lastCheckedAt.lte;
+              const cooldownThreshold = where.OR[1].checkStartedAt.lte;
 
               if (
-                verification.lastCheckedAt !== null &&
-                verification.lastCheckedAt > cooldownThreshold
+                verification.checkStartedAt !== null &&
+                verification.checkStartedAt > cooldownThreshold
               ) {
                 return { count: 0 };
               }
+            } else if (
+              where.checkStartedAt &&
+              verification.checkStartedAt?.getTime() !==
+                where.checkStartedAt.getTime()
+            ) {
+              return { count: 0 };
             } else if (
               where.lastCheckedAt &&
               verification.lastCheckedAt?.getTime() !==
@@ -454,6 +463,55 @@ describe('/api/domain-verifications', () => {
     expect(checked.body.lastCheck.outcome).toBe('verified');
   });
 
+  it('does not expose an in-flight check lease as the last completed check', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/domain-verifications')
+      .send({ domain: 'example.com' })
+      .expect(201);
+    txtRecords = [['unrelated=value']];
+
+    const firstCheck = await request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .expect(200);
+    const firstCheckedAt = firstCheck.body.lastCheck.checkedAt;
+
+    let finishSecondLookup: (records: string[][]) => void = () => undefined;
+    let startSecondLookup: () => void = () => undefined;
+    const secondLookupStarted = new Promise<void>((resolve) => {
+      startSecondLookup = resolve;
+    });
+    resolveTxtMock.mockImplementationOnce(
+      () =>
+        new Promise<string[][]>((resolve) => {
+          finishSecondLookup = resolve;
+          startSecondLookup();
+        }),
+    );
+
+    const stored = records.get(created.body.id);
+    if (!stored) {
+      throw new Error('Expected the verification to be stored.');
+    }
+    stored.checkStartedAt = new Date(Date.now() - 11_000);
+
+    const inFlightCheck = request(app.getHttpServer())
+      .post(`/api/domain-verifications/${created.body.id}/checks`)
+      .then((response) => response);
+    await secondLookupStarted;
+
+    const duringCheck = await request(app.getHttpServer())
+      .get(`/api/domain-verifications/${created.body.id}`)
+      .expect(200);
+
+    expect(duringCheck.body.lastCheck).toEqual({
+      outcome: 'record_mismatch',
+      checkedAt: firstCheckedAt,
+    });
+
+    finishSecondLookup([[created.body.dnsRecord.value]]);
+    await inFlightCheck;
+  });
+
   it('rate limits repeated checks before querying DNS again', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/domain-verifications')
@@ -506,7 +564,7 @@ describe('/api/domain-verifications', () => {
     if (!stored) {
       throw new Error('Expected the verification to be stored.');
     }
-    stored.lastCheckedAt = new Date(0);
+    stored.checkStartedAt = new Date(0);
 
     const newerCheck = await request(app.getHttpServer())
       .post(`/api/domain-verifications/${created.body.id}/checks`)

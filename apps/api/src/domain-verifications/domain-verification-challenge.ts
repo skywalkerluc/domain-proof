@@ -1,10 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-export type DomainVerificationDnsRecord = {
-  type: 'TXT';
-  name: string;
-  value: string;
-};
+import type { DomainVerificationDnsRecord } from '@domain-proof/contracts';
 
 const CHALLENGE_BYTES = 32;
 const RECORD_LABEL = '_domain-proof';

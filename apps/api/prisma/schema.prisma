@@ -26,6 +26,7 @@ model DomainVerification {
   challengeToken   String                          @default(dbgenerated("translate(rtrim(encode(gen_random_bytes(32), 'base64'), '='), '+/', '-_')")) @map("challenge_token")
   status           DomainVerificationStatus        @default(pending)
   verifiedAt       DateTime?                       @map("verified_at")
+  checkStartedAt   DateTime?                       @map("check_started_at")
   lastCheckedAt    DateTime?                       @map("last_checked_at")
   lastCheckOutcome DomainVerificationCheckOutcome? @map("last_check_outcome")
   createdAt        DateTime                        @default(now()) @map("created_at")

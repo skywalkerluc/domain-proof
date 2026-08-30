@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import type { DomainVerification } from './domain-verifications.service';
+import type { DomainVerification } from '@domain-proof/contracts';
 
 export class CreateDomainVerificationRequest {
   @ApiProperty({
@@ -40,7 +40,7 @@ export class DomainVerificationLastCheck {
   checkedAt!: string;
 }
 
-export class DomainVerificationResponse implements DomainVerification {
+export class DomainVerificationResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
@@ -48,7 +48,7 @@ export class DomainVerificationResponse implements DomainVerification {
   domain!: string;
 
   @ApiProperty({ enum: ['pending', 'verified'] })
-  status!: 'pending' | 'verified';
+  status!: DomainVerification['status'];
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: string;

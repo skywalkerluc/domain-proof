@@ -1,4 +1,28 @@
-import { normalizeDomain } from './domain-name';
+import { normalizeDomain, parseDomain } from './domain-name';
+
+describe('parseDomain', () => {
+  it('classifies a missing domain separately from an invalid hostname', () => {
+    expect(parseDomain('')).toEqual({ ok: false, code: 'domain_required' });
+    expect(parseDomain('example')).toEqual({
+      ok: false,
+      code: 'invalid_domain',
+    });
+  });
+
+  it('classifies unsafe characters separately from an invalid hostname', () => {
+    expect(parseDomain('example\u200b.com')).toEqual({
+      ok: false,
+      code: 'unsafe_domain_characters',
+    });
+  });
+
+  it('returns the normalized domain when the input is valid', () => {
+    expect(parseDomain(' Example.COM. ')).toEqual({
+      ok: true,
+      domain: 'example.com',
+    });
+  });
+});
 
 describe('normalizeDomain', () => {
   it.each([
