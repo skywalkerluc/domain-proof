@@ -7,18 +7,32 @@ const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const URL_DELIMITER = /[/:?#@\\]/;
 const UNSAFE_DOMAIN_CHARACTER = /(?![\u200c\u200d])[\p{Cc}\p{Cf}\p{Z}]/u;
 
-export function hasUnsafeDomainCharacters(input: string): boolean {
+export type DomainParseFailureCode =
+  | 'domain_required'
+  | 'unsafe_domain_characters'
+  | 'invalid_domain';
+
+export type DomainParseResult =
+  | { ok: true; domain: string }
+  | { ok: false; code: DomainParseFailureCode };
+
+function hasUnsafeDomainCharacters(input: string): boolean {
   return UNSAFE_DOMAIN_CHARACTER.test(input.trim());
 }
 
-export function normalizeDomain(input: string): string | null {
+export function parseDomain(input: unknown): DomainParseResult {
+  if (typeof input !== 'string' || input.trim() === '') {
+    return { ok: false, code: 'domain_required' };
+  }
+
+  if (hasUnsafeDomainCharacters(input)) {
+    return { ok: false, code: 'unsafe_domain_characters' };
+  }
+
   const withoutTrailingDot = input.trim().toLowerCase().replace(/\.$/, '');
 
-  if (
-    hasUnsafeDomainCharacters(input) ||
-    URL_DELIMITER.test(withoutTrailingDot)
-  ) {
-    return null;
+  if (URL_DELIMITER.test(withoutTrailingDot)) {
+    return { ok: false, code: 'invalid_domain' };
   }
 
   const domain = domainToASCII(withoutTrailingDot);
@@ -28,14 +42,20 @@ export function normalizeDomain(input: string): string | null {
     !canCreateDomainVerificationRecord(domain) ||
     isIP(domain) !== 0
   ) {
-    return null;
+    return { ok: false, code: 'invalid_domain' };
   }
 
   const labels = domain.split('.');
 
   if (labels.length < 2 || labels.some((label) => !DNS_LABEL.test(label))) {
-    return null;
+    return { ok: false, code: 'invalid_domain' };
   }
 
-  return domain;
+  return { ok: true, domain };
+}
+
+export function normalizeDomain(input: string): string | null {
+  const parsed = parseDomain(input);
+
+  return parsed.ok ? parsed.domain : null;
 }

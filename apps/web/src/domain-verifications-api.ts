@@ -12,7 +12,15 @@ const GENERIC_RETRIEVAL_ERROR =
 const GENERIC_CHECK_ERROR =
   "We couldn't check DNS. Please try again in a moment.";
 
-class DomainVerificationRequestError extends Error {
+const DISPLAYABLE_ERROR_CODES = new Set([
+  'domain_required',
+  'invalid_domain',
+  'unsafe_domain_characters',
+  'invalid_verification_id',
+  'verification_not_found',
+]);
+
+export class DomainVerificationRequestError extends Error {
   constructor(
     message: string,
     readonly retryable: boolean,
@@ -41,14 +49,6 @@ export function shouldRetryDomainVerificationRequest(
   );
 }
 
-const DISPLAYABLE_ERROR_CODES = new Set([
-  'domain_required',
-  'invalid_domain',
-  'unsafe_domain_characters',
-  'invalid_verification_id',
-  'verification_not_found',
-]);
-
 function isDisplayableApiError(
   value: unknown,
 ): value is { code: string; message: string } {
@@ -66,7 +66,6 @@ function isDisplayableApiError(
 function isCooldownError(
   value: unknown,
 ): value is { code: 'check_cooldown'; retryAfterSeconds: number } {
-  // Cooldown stays separate because its display message includes retryAfterSeconds.
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -77,100 +76,82 @@ function isCooldownError(
   );
 }
 
-export async function startDomainVerification(
-  domain: string,
+function errorFromPayload(
+  payload: unknown,
+  fallback: string,
+): DomainVerificationRequestError {
+  if (isCooldownError(payload)) {
+    const unit = payload.retryAfterSeconds === 1 ? 'second' : 'seconds';
+
+    return new DomainVerificationRequestError(
+      `Wait ${payload.retryAfterSeconds} ${unit} before checking DNS again.`,
+      false,
+      payload.code,
+    );
+  }
+
+  if (isDisplayableApiError(payload)) {
+    return new DomainVerificationRequestError(
+      payload.message,
+      false,
+      payload.code,
+    );
+  }
+
+  return new DomainVerificationRequestError(fallback, false);
+}
+
+async function requestDomainVerification(
+  url: string,
+  fallback: string,
+  init?: RequestInit,
 ): Promise<DomainVerification> {
   let response: Response;
 
   try {
-    response = await fetch('/api/domain-verifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain }),
-    });
+    response = init === undefined ? await fetch(url) : await fetch(url, init);
   } catch {
-    throw new DomainVerificationRequestError(GENERIC_ERROR, true);
+    throw new DomainVerificationRequestError(fallback, true);
   }
 
   const payload: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(
-      isDisplayableApiError(payload) ? payload.message : GENERIC_ERROR,
-    );
+    throw errorFromPayload(payload, fallback);
   }
 
   if (!isDomainVerification(payload)) {
-    throw new Error(GENERIC_ERROR);
+    throw new DomainVerificationRequestError(fallback, false);
   }
 
   return payload;
+}
+
+export async function startDomainVerification(
+  domain: string,
+): Promise<DomainVerification> {
+  return requestDomainVerification('/api/domain-verifications', GENERIC_ERROR, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domain }),
+  });
 }
 
 export async function getDomainVerification(
   id: string,
 ): Promise<DomainVerification> {
-  let response: Response;
-
-  try {
-    response = await fetch(`/api/domain-verifications/${id}`);
-  } catch {
-    throw new DomainVerificationRequestError(GENERIC_RETRIEVAL_ERROR, true);
-  }
-
-  const payload: unknown = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    if (isDisplayableApiError(payload)) {
-      throw new DomainVerificationRequestError(
-        payload.message,
-        false,
-        payload.code,
-      );
-    }
-
-    throw new Error(GENERIC_RETRIEVAL_ERROR);
-  }
-
-  if (!isDomainVerification(payload)) {
-    throw new Error(GENERIC_RETRIEVAL_ERROR);
-  }
-
-  return payload;
+  return requestDomainVerification(
+    `/api/domain-verifications/${id}`,
+    GENERIC_RETRIEVAL_ERROR,
+  );
 }
 
 export async function checkDomainVerification(
   id: string,
 ): Promise<DomainVerification> {
-  let response: Response;
-
-  try {
-    response = await fetch(`/api/domain-verifications/${id}/checks`, {
-      method: 'POST',
-    });
-  } catch {
-    throw new DomainVerificationRequestError(GENERIC_CHECK_ERROR, true);
-  }
-
-  const payload: unknown = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    if (isCooldownError(payload)) {
-      const unit = payload.retryAfterSeconds === 1 ? 'second' : 'seconds';
-
-      throw new Error(
-        `Wait ${payload.retryAfterSeconds} ${unit} before checking DNS again.`,
-      );
-    }
-
-    throw new Error(
-      isDisplayableApiError(payload) ? payload.message : GENERIC_CHECK_ERROR,
-    );
-  }
-
-  if (!isDomainVerification(payload)) {
-    throw new Error(GENERIC_CHECK_ERROR);
-  }
-
-  return payload;
+  return requestDomainVerification(
+    `/api/domain-verifications/${id}/checks`,
+    GENERIC_CHECK_ERROR,
+    { method: 'POST' },
+  );
 }

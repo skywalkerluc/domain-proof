@@ -1,6 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-import type { DomainVerification } from './domain-verifications.service';
+import { ApiProperty, ApiPropertyOptional, getSchemaPath } from '@nestjs/swagger';
 
 export class CreateDomainVerificationRequest {
   @ApiProperty({
@@ -21,34 +19,33 @@ export class DomainVerificationDnsRecord {
   value!: string;
 }
 
-export class DomainVerificationLastCheck {
+export class PendingDomainVerificationLastCheck {
   @ApiProperty({
-    enum: [
-      'verified',
-      'record_not_found',
-      'record_mismatch',
-      'lookup_error',
-    ],
+    enum: ['record_not_found', 'record_mismatch', 'lookup_error'],
   })
-  outcome!:
-    | 'verified'
-    | 'record_not_found'
-    | 'record_mismatch'
-    | 'lookup_error';
+  outcome!: 'record_not_found' | 'record_mismatch' | 'lookup_error';
 
   @ApiProperty({ format: 'date-time' })
   checkedAt!: string;
 }
 
-export class DomainVerificationResponse implements DomainVerification {
+export class VerifiedDomainVerificationLastCheck {
+  @ApiProperty({ enum: ['verified'] })
+  outcome!: 'verified';
+
+  @ApiProperty({ format: 'date-time' })
+  checkedAt!: string;
+}
+
+export class PendingDomainVerificationResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
   @ApiProperty({ example: 'example.com' })
   domain!: string;
 
-  @ApiProperty({ enum: ['pending', 'verified'] })
-  status!: 'pending' | 'verified';
+  @ApiProperty({ enum: ['pending'] })
+  status!: 'pending';
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: string;
@@ -56,12 +53,46 @@ export class DomainVerificationResponse implements DomainVerification {
   @ApiProperty({ type: DomainVerificationDnsRecord })
   dnsRecord!: DomainVerificationDnsRecord;
 
-  @ApiPropertyOptional({ format: 'date-time' })
-  verifiedAt?: string;
-
-  @ApiPropertyOptional({ type: DomainVerificationLastCheck })
-  lastCheck?: DomainVerificationLastCheck;
+  @ApiPropertyOptional({ type: PendingDomainVerificationLastCheck })
+  lastCheck?: PendingDomainVerificationLastCheck;
 }
+
+export class VerifiedDomainVerificationResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'example.com' })
+  domain!: string;
+
+  @ApiProperty({ enum: ['verified'] })
+  status!: 'verified';
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: string;
+
+  @ApiProperty({ type: DomainVerificationDnsRecord })
+  dnsRecord!: DomainVerificationDnsRecord;
+
+  @ApiProperty({ format: 'date-time' })
+  verifiedAt!: string;
+
+  @ApiProperty({ type: VerifiedDomainVerificationLastCheck })
+  lastCheck!: VerifiedDomainVerificationLastCheck;
+}
+
+export const DOMAIN_VERIFICATION_RESPONSE_SCHEMA = {
+  oneOf: [
+    { $ref: getSchemaPath(PendingDomainVerificationResponse) },
+    { $ref: getSchemaPath(VerifiedDomainVerificationResponse) },
+  ],
+  discriminator: {
+    propertyName: 'status',
+    mapping: {
+      pending: getSchemaPath(PendingDomainVerificationResponse),
+      verified: getSchemaPath(VerifiedDomainVerificationResponse),
+    },
+  },
+};
 
 export class DomainVerificationErrorResponse {
   @ApiProperty({

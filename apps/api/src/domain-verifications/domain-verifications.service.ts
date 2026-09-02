@@ -8,6 +8,7 @@ import {
 import type {
   DomainVerification,
   DomainVerificationCheckOutcome,
+  DomainVerificationPendingCheckOutcome,
 } from '@domain-proof/contracts';
 
 import type { DomainVerification as PersistedDomainVerification } from '../generated/prisma/client';
@@ -35,32 +36,73 @@ function dnsErrorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code : undefined;
 }
 
+function isPendingCheckOutcome(
+  outcome: DomainVerificationCheckOutcome,
+): outcome is DomainVerificationPendingCheckOutcome {
+  switch (outcome) {
+    case 'record_not_found':
+    case 'record_mismatch':
+    case 'lookup_error':
+      return true;
+    case 'verified':
+      return false;
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
+    }
+  }
+}
+
 function toDomainVerification(
   verification: PersistedDomainVerification,
 ): DomainVerification {
-  const response: DomainVerification = {
-    id: verification.id,
-    domain: verification.domain,
-    status: verification.status,
-    createdAt: verification.createdAt.toISOString(),
-    dnsRecord: toDomainVerificationDnsRecord(
-      verification.domain,
-      verification.challengeToken,
-    ),
-  };
+  const dnsRecord = toDomainVerificationDnsRecord(
+    verification.domain,
+    verification.challengeToken,
+  );
 
-  if (verification.verifiedAt) {
-    response.verifiedAt = verification.verifiedAt.toISOString();
-  }
-
-  if (verification.lastCheckOutcome && verification.lastCheckedAt) {
-    response.lastCheck = {
-      outcome: verification.lastCheckOutcome,
-      checkedAt: verification.lastCheckedAt.toISOString(),
+  if (verification.status === 'verified' && verification.verifiedAt) {
+    return {
+      id: verification.id,
+      domain: verification.domain,
+      status: 'verified',
+      createdAt: verification.createdAt.toISOString(),
+      verifiedAt: verification.verifiedAt.toISOString(),
+      dnsRecord,
+      lastCheck: {
+        outcome: 'verified',
+        checkedAt: (
+          verification.lastCheckedAt ?? verification.verifiedAt
+        ).toISOString(),
+      },
     };
   }
 
-  return response;
+  if (
+    verification.lastCheckOutcome &&
+    isPendingCheckOutcome(verification.lastCheckOutcome) &&
+    verification.lastCheckedAt
+  ) {
+    return {
+      id: verification.id,
+      domain: verification.domain,
+      status: 'pending',
+      createdAt: verification.createdAt.toISOString(),
+      dnsRecord,
+      lastCheck: {
+        outcome: verification.lastCheckOutcome,
+        checkedAt: verification.lastCheckedAt.toISOString(),
+      },
+    };
+  }
+
+  return {
+    id: verification.id,
+    domain: verification.domain,
+    status: 'pending',
+    createdAt: verification.createdAt.toISOString(),
+    dnsRecord,
+  };
 }
 
 @Injectable()
@@ -97,18 +139,20 @@ export class DomainVerificationsService {
       return toDomainVerification(verification);
     }
 
-    const checkedAt = new Date();
-    const cooldownThreshold = new Date(checkedAt.getTime() - CHECK_COOLDOWN_MS);
+    const checkStartedAt = new Date();
+    const cooldownThreshold = new Date(
+      checkStartedAt.getTime() - CHECK_COOLDOWN_MS,
+    );
     const reservation = await this.prisma.domainVerification.updateMany({
       where: {
         id,
         status: 'pending',
         OR: [
-          { lastCheckedAt: null },
-          { lastCheckedAt: { lte: cooldownThreshold } },
+          { checkStartedAt: null },
+          { checkStartedAt: { lte: cooldownThreshold } },
         ],
       },
-      data: { lastCheckedAt: checkedAt },
+      data: { checkStartedAt },
     });
 
     if (reservation.count === 0) {
@@ -121,11 +165,11 @@ export class DomainVerificationsService {
       }
 
       const cooldownEndsAt =
-        (current?.lastCheckedAt?.getTime() ?? checkedAt.getTime()) +
+        (current?.checkStartedAt?.getTime() ?? checkStartedAt.getTime()) +
         CHECK_COOLDOWN_MS;
       const retryAfterSeconds = Math.max(
         1,
-        Math.ceil((cooldownEndsAt - checkedAt.getTime()) / 1_000),
+        Math.ceil((cooldownEndsAt - checkStartedAt.getTime()) / 1_000),
       );
 
       throw new HttpException(
@@ -151,7 +195,7 @@ export class DomainVerificationsService {
 
       return this.saveCheckResult(
         id,
-        checkedAt,
+        checkStartedAt,
         code === 'ENODATA' || code === 'ENOTFOUND'
           ? 'record_not_found'
           : 'lookup_error',
@@ -159,7 +203,7 @@ export class DomainVerificationsService {
     }
 
     if (txtRecords.length === 0) {
-      return this.saveCheckResult(id, checkedAt, 'record_not_found');
+      return this.saveCheckResult(id, checkStartedAt, 'record_not_found');
     }
 
     const matches = txtRecords.some(
@@ -167,10 +211,10 @@ export class DomainVerificationsService {
     );
 
     if (!matches) {
-      return this.saveCheckResult(id, checkedAt, 'record_mismatch');
+      return this.saveCheckResult(id, checkStartedAt, 'record_mismatch');
     }
 
-    return this.saveCheckResult(id, checkedAt, 'verified');
+    return this.saveCheckResult(id, checkStartedAt, 'verified');
   }
 
   private async getVerificationOrThrow(
@@ -213,14 +257,15 @@ export class DomainVerificationsService {
 
   private async saveCheckResult(
     id: string,
-    checkedAt: Date,
+    checkStartedAt: Date,
     outcome: DomainVerificationCheckOutcome,
   ): Promise<DomainVerification> {
+    const checkedAt = new Date();
     await this.prisma.domainVerification.updateMany({
       where: {
         id,
         status: 'pending',
-        lastCheckedAt: checkedAt,
+        checkStartedAt,
       },
       data:
         outcome === 'verified'

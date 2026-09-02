@@ -33,9 +33,9 @@ export function VerificationCard({
 }) {
   const isVerified = verification.status === 'verified';
   const pendingOutcome =
-    verification.lastCheck?.outcome === 'verified'
-      ? undefined
-      : verification.lastCheck?.outcome;
+    verification.status === 'pending'
+      ? verification.lastCheck?.outcome
+      : undefined;
   const outcomeCopy = pendingOutcome
     ? CHECK_OUTCOME_COPY[pendingOutcome]
     : undefined;
